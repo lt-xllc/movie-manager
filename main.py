@@ -1,9 +1,8 @@
-import csv
 from fastapi import FastAPI, HTTPException
-import sqlite3
 from pydantic import BaseModel
-
-
+from db import engine,Movie
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 app=FastAPI(swagger_ui_parameters={
         "swagger_js_url": "https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js",
@@ -11,25 +10,7 @@ app=FastAPI(swagger_ui_parameters={
     })
 
 
-def load_movies():
-    with open("csv2.csv","r",encoding="utf-8") as f:
-        rows=list(csv.DictReader(f))
-    for i,row in enumerate(rows,start=1):
-        row["id"]=i
-    return rows
-
-
-
-
-movies=load_movies()
-#print(movies)
-#@app.get("/")
-#async def root():
-#    return {"message": "Welcome to Movie Release API"}
-
-
-
-class Movie(BaseModel):
+class MovieIn(BaseModel):
     name: str
     year: int
     release: str = "无"
@@ -38,76 +19,38 @@ class Movie(BaseModel):
     score: int
     language: str = "无"
 
+#添加电影
 @app.post("/movies")
-def list_movies(movie: Movie):
-    conn=sqlite3.connect("movies.db")
-    cur=conn.cursor()
-    cur.execute("INSERT INTO movies (name,year,release,genre,duration,score,language)VALUES(?,?,?,?,?,?,?)",
-                (movie.name,movie.year,movie.release,movie.genre,movie.duration,movie.score,movie.language))
-    conn.commit()
-    new_id=cur.lastrowid #添加了第几位id
-    conn.close()
-    return {"id": new_id,"message":"添加成功"}
+def list_movies(movie: MovieIn):
 
-
+    with Session(engine) as session:
+        m=Movie(name=movie.name,year=movie.year,release=movie.release,genre=movie.genre,duration=movie.duration,score=movie.score,language=movie.language)
+        session.add(m)
+        session.commit()
+        return {"id": m.id,"message":"添加成功"}
+#删除电影
 @app.delete("/movies/{id}")
 def delete_movie(id: int):
-    conn=sqlite3.connect("movies.db")
-    cur=conn.cursor()
-    cur.execute("DELETE FROM movies WHERE id=?",(id,))
-    conn.commit()
-    delete=cur.rowcount #相较于之前的数据有多少改动
-    conn.close()
-    if delete == 0:
+    with Session(engine) as session:
+        sel=select(Movie).where(Movie.id==id)
+        delete=session.scalar(sel)
+        if delete:
+            session.delete(delete)
+            session.commit()
+            return {"message": "删除成功"}
         raise HTTPException(status_code=404, detail="Movie not found")
-    return {"message": "删除成功"}
-
-
+#查询电影
 @app.get("/movies")
-def list_movies(sj: str="",pf: int=80):
-    conn=sqlite3.connect("movies.db")
-
-    conn.row_factory=sqlite3.Row
-    cur=conn.cursor()
-    cur.execute("""
-                select id,name AS 电影名,year AS 年份,release AS "上映时间(地区)",genre AS 类型,duration AS 时长,score AS 评分,language AS 语言
-                from movies 
-                WHERE name LIKE ? AND score>=?                                                     
-                                 """,(f"%{sj}%",pf))
-    #rows=[dict(r)for r in cur.fetchall()]
-    rows=[]
-    for i in cur.fetchall():
-        rows.append(dict(i))
-        #print(i)
-    conn.close()
+def get_movies(sj: str="",pf: int=80):
+    with Session(engine) as session:
+        sel=select(Movie).where(Movie.name.like(f"%{sj}%"),Movie.score>=pf)
+        shuju=session.scalars(sel).all()
+        rows = []
+        for i in shuju:
+            rows.append({"id":i.id,"电影名":i.name,"年份":i.year,"上映时间(地区)":i.release,"类型":i.genre,"时长":i.duration,"评分":i.score,"语言":i.language})
     if rows:
         return rows
     raise HTTPException(status_code=404, detail="Movie not found")
-
-
-    # a = []
-    # for i in movies:
-    #     if sj in i["电影名"] and pf<=int(i["评分"]):
-    #         a.append(i)
-    # if a:
-    #     return a
-    # raise HTTPException(status_code=404, detail="Movie not found")
-
-
-
-
-
-# @app.get("/movies/{id}")
-# def get_movie(id: str):
-#     a=[]
-#     for i in movies:
-#         if id in i["电影名"]:
-#             a.append(i)
-#     if a:
-#         return a
-#
-#     raise HTTPException(status_code=404, detail="Movie not found")
-
 
 
 
