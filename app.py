@@ -57,8 +57,6 @@ def confirm_delete(movie_id):
     if col2.button("取消"):
         st.rerun()
 
-
-
 sc=st.number_input("要删除的电影:",min_value=1,step=1)
 if st.button("删除"):
     confirm_delete(sc)
